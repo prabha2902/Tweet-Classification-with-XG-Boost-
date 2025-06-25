@@ -1,0 +1,129 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from wordcloud import WordCloud
+import re
+from collections import Counter
+from sklearn.preprocessing import LabelEncoder
+from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.linear_model import SGDClassifier, LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+
+import warnings
+warnings.filterwarnings("ignore")
+
+# Load dataset
+data_set = pd.read_csv("mbti_1.csv")
+
+# Count posts per type
+total = data_set.groupby(['type']).count()*50
+plt.figure(figsize = (12,4))
+plt.bar(np.array(total.index), height = total['posts'])
+plt.xlabel('Personality types')
+plt.ylabel('No. of posts available')
+plt.title('Total posts for each personality type')
+plt.show()
+
+# Words per comment and variance of word counts
+df = data_set.copy()
+df['words_per_comment'] = df['posts'].apply(lambda x: len(x.split())/50)
+def var_row(row):
+    l = [len(i.split()) for i in row.split('|||')]
+    return np.var(l)
+df['variance_of_word_counts'] = df['posts'].apply(var_row)
+
+plt.figure(figsize=(15,10))
+sns.swarmplot(x="type", y="words_per_comment", data=df)
+plt.show()
+
+sns.jointplot(x="variance_of_word_counts", y="words_per_comment", data=df, kind="hex")
+plt.show()
+
+# Post length distribution
+df["length_posts"] = df["posts"].apply(len)
+sns.histplot(df["length_posts"], kde=True)
+plt.title("Distribution of Lengths of all 50 Posts")
+plt.show()
+
+# Word cloud of most common words
+words = list(df["posts"].apply(lambda x: x.split()))
+words = [x for y in words for x in y]
+wc = WordCloud(width=1200, height=500, collocations=False, background_color="white").generate(" ".join(words))
+plt.figure(figsize=(25,10))
+plt.imshow(wc, interpolation='bilinear')
+plt.axis("off")
+plt.show()
+
+# Preprocess text
+def preprocess_text(df):
+    df = df.copy()
+    df["posts"] = df["posts"].apply(lambda x: re.sub(r'https?:\/\/.*?[\s+]', '', x.replace("|"," ")))
+    df["posts"] = df["posts"].apply(lambda x: re.sub(r'[^a-zA-Z\s]', '', x.lower()))
+    return df
+
+new_df = preprocess_text(data_set)
+new_df = new_df[new_df["posts"].apply(lambda x: len(x.split()) >= 15)]
+
+# Label Encoding
+target = LabelEncoder().fit_transform(new_df['type'])
+
+# Count Vectorization
+vect = CountVectorizer(stop_words='english')
+train = vect.fit_transform(new_df["posts"])
+
+X_train, X_test, y_train, y_test = train_test_split(train, target, test_size=0.4, stratify=target, random_state=42)
+
+accuracies = {}
+
+# Random Forest
+rf = RandomForestClassifier(n_estimators=100, random_state=1)
+rf.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, rf.predict(X_test))
+accuracies['Random Forest'] = accuracy * 100.0
+
+# XGBoost
+xgb = XGBClassifier()
+xgb.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, xgb.predict(X_test))
+accuracies['XG Boost'] = accuracy * 100.0
+
+# SGD Classifier
+sgd = SGDClassifier(max_iter=5, tol=None)
+sgd.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, sgd.predict(X_test))
+accuracies['Gradient Descent'] = accuracy * 100.0
+
+# Logistic Regression
+logreg = LogisticRegression()
+logreg.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, logreg.predict(X_test))
+accuracies['Logistic Regression'] = accuracy * 100.0
+
+# KNN
+knn = KNeighborsClassifier(n_neighbors=2)
+knn.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, knn.predict(X_test))
+accuracies['KNN'] = accuracy * 100.0
+
+# SVM
+svm = SVC(random_state=1)
+svm.fit(X_train, y_train)
+accuracy = accuracy_score(y_test, svm.predict(X_test))
+accuracies['SVM'] = accuracy * 100.0
+
+# Accuracy plot
+plt.figure(figsize=(16,5))
+colors = ["purple", "green", "orange", "magenta", "#CFC60E", "#0FBBAE"]
+sns.barplot(x=list(accuracies.keys()), y=list(accuracies.values()), palette=colors)
+plt.yticks(np.arange(0, 100, 10))
+plt.ylabel("Accuracy %")
+plt.xlabel("Algorithms")
+plt.title("Model Comparison")
+plt.show()
